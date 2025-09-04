@@ -138,7 +138,7 @@ Only use the following tables:
 Respond in the following format:
 
 ```{dialect}
-REWRITTEN QUERY
+GENERATED QUERY
 ```
 """.strip(),
         ),
@@ -158,11 +158,7 @@ REWRITTEN QUERY
 {execution}
 ```
 
-## Feedback ##
-
-{feedback}
-
-Please rewrite the query to address the feedback.""",
+Please rewrite the query.""",
         ),
     ]
 )
@@ -225,15 +221,20 @@ class SQLAgent:
         """Get the table information in a human-readable format."""
         try:
             table_info = self.db.get_table_info()
+            clean_sql = re.sub(r"/\*.*?\*/", "", table_info, flags=re.DOTALL)
+            clean_sql = re.sub(r"\n{3,}", "\n\n", clean_sql)
+            table_info = clean_sql
             if len(table_info) > self.table_info_truncate:
                 table_info = table_info[: self.table_info_truncate] + "\n... (truncated)"
             return table_info
         except Exception as e:
             logger.error(f"Failed to get table info: {e}")
             if self.db_schema:
-                if len(self.db_schema) > self.table_info_truncate:
-                    return self.db_schema[: self.table_info_truncate] + "\n... (truncated)"
-                return self.db_schema
+                clean_sql = re.findall(r'CREATE TABLE[\s\S]*?\);', self.db_schema, flags=re.IGNORECASE)
+                clean_sql = "\n\n".join(clean_sql)
+                if len(clean_sql) > self.table_info_truncate:
+                    return clean_sql[: self.table_info_truncate] + "\n... (truncated)"
+                return clean_sql
             return "No schema available."
 
     def invoke_prompt(self, prompt: Any) -> BaseMessage:
@@ -324,7 +325,7 @@ class SQLAgent:
                 "input": state["question"],
                 "query": state["query"],
                 "execution": self.truncate_execuion(state["execution"]),
-                "feedback": state["feedback"],
+                # "feedback": state["feedback"],
                 "table_info": self.get_table_info(),
             }
         )
@@ -340,19 +341,10 @@ class SQLAgent:
         }
 
     def should_continue(self, state: State) -> Literal[END, "rewrite_query"]:  # type: ignore
-        """Determine if the agent should continue based on the result."""
         if state["messages"] and isinstance(state["messages"][-1], BaseMessage):
-            last_message = state["messages"][-1]
-            if "THE QUERY IS CORRECT" in last_message.content:
-                if "THE QUERY IS INCORRECT" in last_message.content:
-                    # Both correct and incorrect messages found
-                    # See which is the last one
-                    correct_index = last_message.content.rfind("THE QUERY IS CORRECT")
-                    incorrect_index = last_message.content.rfind("THE QUERY IS INCORRECT")
-                    if correct_index > incorrect_index:
-                        return END
-                else:
-                    return END
+            execution = state["execution"]
+            if not ("Error" in execution or "Traceback" in execution or "Exception" in execution):
+                return END
 
         if state.get("num_turns", 0) >= self.max_turns:
             return END
@@ -363,14 +355,14 @@ class SQLAgent:
         builder = StateGraph(State)
         builder.add_node(self.write_query)
         builder.add_node(self.execute_query)
-        builder.add_node(self.check_query)
+        # builder.add_node(self.check_query)
         builder.add_node(self.rewrite_query)
 
         builder.add_edge(START, "write_query")
         builder.add_edge("write_query", "execute_query")
-        builder.add_edge("execute_query", "check_query")
+        # builder.add_edge("execute_query", "check_query")
         builder.add_conditional_edges(
-            "check_query",
+            "execute_query",
             self.should_continue,
         )
         builder.add_edge("rewrite_query", "execute_query")
@@ -545,6 +537,66 @@ def spider_dev_data():
     }
     return agentlightning.DevTaskLoader(df.head(10).to_dict(orient="records"), resource)
 
+def run_eval(db_id, question, ground_truth):
+    original_db_path = os.path.join(
+                "/home/jiahangxu/working/agent-lightning-msft/examples/spider/data", "test_database", db_id, db_id + ".sqlite"
+            )
+    tracer = AgentOpsTracer()
+    tracer.init()
+    tracer.init_worker(0)
+    from agentlightning.tracer.triplet import TraceTree
+
+    global _langchain_callback_handler
+    _langchain_callback_handler = tracer.get_langchain_callback_handler()
+
+    schema_path = os.path.join(os.path.dirname(original_db_path), "schema.sql")
+    if os.path.exists(schema_path):
+        with open(schema_path, "r") as f:
+            schema = f.read()
+    else:
+        logger.error("Schema file not found: %s", schema_path)
+        schema = "No schema available."
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = os.path.join(temp_dir, os.path.basename(original_db_path))
+        shutil.copyfile(original_db_path, db_path)
+        logger.info(f"[Rollout {rollout_id}] Question: {question}")
+        logger.info(f"[Rollout {rollout_id}] Ground Truth: {ground_truth}")
+
+        # Run the agent
+        agent = SQLAgent(
+            "sqlite:///" + db_path,
+            max_turns=5,
+            table_info_truncate=2048,
+            execution_truncate=2048,
+            debug=False,
+            db_schema=schema,
+            endpoint="http://localhost:8000/v1",
+            verl_replacement=(
+                {
+                    "model": "Qwen/Qwen2.5-Coder-3B-Instruct",
+                    "temperature": 0.0,
+                }
+            ),
+        ).graph()
+        try:
+            result = agent.invoke(
+                {"question": question},
+                {"callbacks": [_langchain_callback_handler], "recursion_limit": 100},
+            )
+        except Exception as e:
+            logger.exception(f"[Rollout {rollout_id}] Error during agent invocation: {e}")
+
+        logger.info(f"[Rollout {rollout_id}] Generated Query: {result['query']}")
+        # print(result)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = os.path.join(temp_dir, os.path.basename(original_db_path))
+            shutil.copyfile(original_db_path, db_path)
+
+            reward = evaluate_query(result["query"], ground_truth, db_path, raise_on_error=False)
+            logger.info("[Rollout %s] Reward: %s", rollout_id, reward)
+        return reward
 
 if __name__ == "__main__":
     dotenv.load_dotenv()

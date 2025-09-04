@@ -6,7 +6,7 @@ export N_GPUS=1
 export BASE_MODEL=Qwen/Qwen2.5-Coder-3B-Instruct
 export DATA_DIR=data
 export ROLLOUT_TP_SIZE=1
-export EXPERIMENT_NAME="spider_turn3_truncate2048_4321"
+export EXPERIMENT_NAME="spider_turn1_truncate2048_0904"
 export PROJECT_NAME=AgentLightning
 
 echo "Starting training script..."
@@ -17,7 +17,7 @@ python -m agentlightning.verl \
     data.val_files=${DATA_DIR}/test_dev_500.parquet \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
     trainer.n_gpus_per_node=${N_GPUS} \
-    agentlightning.port=9999 \
+    agentlightning.port=9998 \
     data.train_batch_size=32 \
     actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -49,16 +49,16 @@ python -m agentlightning.verl \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
     trainer.nnodes=1 \
-    trainer.save_freq=32 \
-    trainer.test_freq=32 \
-    trainer.total_epochs=10 $@
+    trainer.save_freq=128 \
+    trainer.test_freq=128 \
+    trainer.total_epochs=5 $@
 
 
-# PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9999/ python sql_agent.py \
+# PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9998/ python sql_agent.py \
 #     --litsqlagent.trained-agents write \
 #     --trainer.n-workers 16 \
 #     --trainer.daemon true \
 #     --litsqlagent.val-temperature 0 \
-#     --litsqlagent.max-turns 3 \
+#     --litsqlagent.max-turns 1 \
 #     --litsqlagent.table-info-truncate 2048 \
 #     --litsqlagent.execution-truncate 2048
