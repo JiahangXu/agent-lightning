@@ -49,6 +49,7 @@ python -m agentlightning.verl \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
     trainer.nnodes=1 \
+    trainer.default_local_dir=/mnt/teamdrive/AgentLightning/checkpoints/${PROJECT_NAME}/${EXPERIMENT_NAME} \
     trainer.save_freq=128 \
     trainer.test_freq=128 \
     trainer.total_epochs=5 $@
