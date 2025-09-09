@@ -21,8 +21,8 @@ python -m agentlightning.verl \
     data.train_batch_size=32 \
     actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.model.path=${BASE_MODEL} \
     data.max_prompt_length=4096 \
@@ -49,8 +49,8 @@ python -m agentlightning.verl \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
     trainer.nnodes=1 \
-    trainer.save_freq=32 \
-    trainer.test_freq=32 \
+    trainer.save_freq=128 \
+    trainer.test_freq=128 \
     trainer.total_epochs=10 $@
 
 
