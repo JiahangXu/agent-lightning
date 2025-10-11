@@ -5,8 +5,8 @@ set -e
 export N_GPUS=4
 export BASE_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 export DATA_DIR=data
-export ROLLOUT_TP_SIZE=4
-export EXPERIMENT_NAME="skyrl_7B_turn5_truncate8192_1011"
+export ROLLOUT_TP_SIZE=2
+export EXPERIMENT_NAME="skyrl_check_7B_turn5_truncate8192_1011"
 export PROJECT_NAME=AgentLightning
 
 echo "Starting training script..."
@@ -55,7 +55,7 @@ python -m agentlightning.verl \
     trainer.total_epochs=50 $@
 
 cd /scratch/amlt_code/ && python train_nvidia.py
-# PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9997/ python sql_agent.py \
+# PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9997/ python sql_agent2.py \
 #     --litsqlagent.trained-agents write \
 #     --trainer.n-workers 16 \
 #     --trainer.daemon true \
