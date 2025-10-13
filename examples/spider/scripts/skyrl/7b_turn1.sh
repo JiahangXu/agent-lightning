@@ -2,7 +2,7 @@
 
 set -e
 
-export N_GPUS=4
+export N_GPUS=8
 export BASE_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 export DATA_DIR=data
 export ROLLOUT_TP_SIZE=4
@@ -49,7 +49,7 @@ python -m agentlightning.verl \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
     trainer.nnodes=1 \
-    trainer.default_local_dir=/mnt/peidongwang/jiahang/${PROJECT_NAME}/${EXPERIMENT_NAME} \
+    trainer.default_local_dir=/mnt/teamdrive/${PROJECT_NAME}/${EXPERIMENT_NAME} \
     trainer.save_freq=20 \
     trainer.test_freq=20 \
     trainer.total_epochs=50 $@
