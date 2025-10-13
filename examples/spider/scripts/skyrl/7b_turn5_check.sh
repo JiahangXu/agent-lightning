@@ -2,7 +2,7 @@
 
 set -e
 
-export N_GPUS=4
+export N_GPUS=8
 export BASE_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 export DATA_DIR=data
 export ROLLOUT_TP_SIZE=2
