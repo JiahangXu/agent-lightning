@@ -52,7 +52,7 @@ python -m agentlightning.verl \
     trainer.default_local_dir=/mnt/teamdrive/${PROJECT_NAME}/${EXPERIMENT_NAME} \
     trainer.save_freq=20 \
     trainer.test_freq=20 \
-    trainer.total_epochs=50 $@
+    trainer.total_epochs=80 $@
 
 cd /scratch/amlt_code/ && python dynamic_ft.py
 # PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9997/ python sql_agent.py \
