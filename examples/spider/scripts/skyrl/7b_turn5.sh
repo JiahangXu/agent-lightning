@@ -54,7 +54,7 @@ python -m agentlightning.verl \
     trainer.test_freq=20 \
     trainer.total_epochs=50 $@
 
-cd /scratch/amlt_code/ && python train_nvidia.py
+cd /scratch/amlt_code/ && python dynamic_ft.py
 # PYTHONPATH=$PYTHONPATH:../.. VERL_API_BASE=http://localhost:9997/ python sql_agent.py \
 #     --litsqlagent.trained-agents write \
 #     --trainer.n-workers 16 \
