@@ -258,6 +258,7 @@ class AgentLightningTrainer(RayPPOTrainer):
                         if self.config.actor_rollout_ref.rollout.trace_aggregator.mode.startswith("trajectory") else \
                             self.config.data.max_response_length,
                     device=gen_batch.batch["fake_ids"].device,
+                    use_final_reward_as_step_reward=self.config.algorithm.use_final_reward_as_step_reward,
                     empo2_train_mode=self.empo2_train_mode
                 )
                 metrics.update(agent_metrics)

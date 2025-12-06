@@ -1079,7 +1079,8 @@ class AgentModeDaemon:
                             print(accum_response_ids, file=f)
 
                     response_ids = accum_response_ids  # convert to the generating response ids, only for debug testing
-                    reward_list.append(sample_info["reward"])
+                    final_reward_list.append(sample_info["final_reward"])
+                    step_reward_list.append(trace["step_reward"])
 
                     # Mark samples with prompts exceeding max_prompt_length to be dropped later
                     if len(prompt_ids) > max_prompt_length:
@@ -1162,9 +1163,9 @@ class AgentModeDaemon:
             "position_ids": position_ids,
             "is_drop_mask": is_drop_mask,
             "token_level_scores": token_level_scores.contiguous(),
+            "step_rewards": torch.tensor(np.array(step_reward_list), dtype=torch.float32).to(device),
             **({"response_mask": response_mask} if self.trace_aggregator.mode.startswith("trajectory") else {}),
         }
-        batch_dict["step_rewards"] = torch.tensor(np.array(step_reward_list), dtype=torch.float32).to(device)
         if token_level_intrinsic_rewards is not None:
             batch_dict["step_intrinsic_rewards"] = torch.tensor(
                 np.array(step_intrinsic_reward_list), dtype=torch.float32
