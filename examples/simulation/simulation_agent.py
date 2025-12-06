@@ -12,6 +12,7 @@ from captioners.add_instruction import add_chat_instruction, add_single_instruct
 from captioners.debugging import (
     print_llm_chat_input,
     print_llm_single_input,
+    save_chat_rollout
 )
 from envs import make_env_manager
 
@@ -82,6 +83,14 @@ class SimulationAgent(LitAgent):
             return print_llm_chat_input(obs)
         elif obs_type == "single":
             return print_llm_single_input(obs)
+
+    def _save_chat_rollout(self, obs, filename):
+        obs_type = self.config.captioner.obs_type
+
+        if obs_type == "chat":
+            return save_chat_rollout(obs, filename)
+        
+        raise ValueError(f"Unsupported obs_type={obs_type}")
 
     async def rollout_async(
         self,
