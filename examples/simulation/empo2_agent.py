@@ -13,10 +13,11 @@ from agentlightning import (
     LLM, 
     NamedResources, 
     Rollout,
-    configure_logger, 
+    configure_logger,
     emit_reward, 
-    emit_message
+    operation
 )
+from agentlightning.utils.otel import make_link_attributes
 
 from simulation_agent import SimulationAgent
 
@@ -114,13 +115,11 @@ class EMPO2Agent(SimulationAgent):
             obs, pure_env_obs, infos = self.env.reset()
             episode_reward, done = 0.0, False
 
-            pattern_type_list = ["call", "reward", "reward"]
-            emit_message("_".join(pattern_type_list))
-
             pure_obs_for_mem = []
             history_actions_for_mem = []
             tip_list = []
-        
+
+            step_count = 0
             while not done:
                 if use_tips:
                     text = gather_chats(obs)
@@ -151,7 +150,8 @@ class EMPO2Agent(SimulationAgent):
                         instructed_obs = self._get_instructed_obs(obs)
 
                     # Main agent step
-                    result = await self.agent._model_client.create(instructed_obs)
+                    with operation(step_count=step_count):
+                        result = await self.agent._model_client.create(instructed_obs)
                     output = result.content
                     logger.info(f"[LLM output]: {output}")
 
@@ -166,11 +166,19 @@ class EMPO2Agent(SimulationAgent):
                 
                 if rollout.mode == "train":
                     step_reward = reward_scale * step_reward
-                emit_reward(step_reward)
-                emit_reward(intrinsic_reward)
+                emit_reward(
+                    {
+                        "extrinsic_reward": step_reward,
+                        "intrinsic_reward": intrinsic_reward,
+                    },
+                    primary_key="extrinsic_reward",
+                    attributes=make_link_attributes({"step_count": str(step_count)}),
+                )
 
                 episode_reward += float(step_reward)
                 done = np.logical_or(terminated, truncated)
+
+                step_count += 1
 
             if self.config.captioner.obs_type == "chat" and self.config.save_rollout:
                 filename = f"empo2_rollouts/variant_{variation_idx}/step_{global_steps}/{rollout_id}_{round(episode_reward, 1)}_use_tip_{use_tips}.json"

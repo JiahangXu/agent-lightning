@@ -15,7 +15,16 @@ from captioners.debugging import (
 )
 from envs import make_env_manager
 
-from agentlightning import LLM, LitAgent, NamedResources, Rollout, configure_logger, emit_object, emit_reward, operation
+from agentlightning import (
+    LLM,
+    LitAgent,
+    NamedResources,
+    Rollout,
+    configure_logger,
+    emit_object,
+    emit_reward,
+    operation,
+)
 from agentlightning.utils.otel import make_link_attributes
 
 logger = configure_logger(name=__name__, level=logging.ERROR)
