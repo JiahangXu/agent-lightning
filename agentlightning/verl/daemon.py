@@ -24,6 +24,8 @@ from agentlightning.llm_proxy import LLMProxy, ModelConfig
 from agentlightning.store.base import LightningStore
 from agentlightning.types import EnqueueRolloutRequest, Rollout, RolloutConfig, Task
 
+from algorithms.empo2 import core_empo2
+
 __all__ = [
     "AgentModeDaemon",
     "get_left_padded_ids_and_attention_mask",
@@ -715,6 +717,7 @@ class AgentModeDaemon:
         device: torch.device,
         use_final_reward_as_step_reward: bool = True,
         is_gigpo: bool = False,
+        empo2_train_mode: bool = False
     ):
         """
         Processes completed rollouts to generate a training data batch.
@@ -812,6 +815,12 @@ class AgentModeDaemon:
                     message_list.append(trace["message"])
 
                 prompt_ids, response_ids = trace["prompt_ids"], trace["response_ids"]
+
+                if empo2_train_mode == "off-policy":
+                    START_PATTERN = self.tokenizer.encode("<tip>")
+                    END_PATTERN = self.tokenizer.encode("</tip>\n\n")
+                    if core_empo2.is_sublist(START_PATTERN, prompt_ids):
+                        prompt_ids = core_empo2.remove_pattern_ranges(prompt_ids, START_PATTERN, END_PATTERN)
 
                 # Mark samples with prompts exceeding max_prompt_length to be dropped later
                 if len(prompt_ids) > max_prompt_length:

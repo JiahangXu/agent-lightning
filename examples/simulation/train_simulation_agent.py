@@ -1,23 +1,24 @@
-import argparse
 import os
-import subprocess
+import re
 import time
+import argparse
+import subprocess
 
 from omegaconf import OmegaConf
 
 from agentlightning import Trainer
 from agentlightning.algorithm.verl import VERL
-from examples.simulation.utils import kill_process_on_port, run_cmd
+
+from examples.simulation.empo2_agent import reset_memory
+from examples.simulation.utils import run_cmd, kill_process_on_port
 
 
 def train_val_dataset(cfg):
     """Load training and validation datasets from parquet files."""
     from datasets import Dataset
-
     train_data = Dataset.from_parquet(cfg["data"]["train_files"])
     val_data = Dataset.from_parquet(cfg["data"]["val_files"])
     return train_data, val_data
-
 
 def get_config(path):
     cfg = OmegaConf.load(path)
@@ -25,7 +26,6 @@ def get_config(path):
     if "variables" in cfg:
         del cfg["variables"]
     return cfg
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -46,15 +46,16 @@ if __name__ == "__main__":
 
     # set environment variable before loading configs
     os.environ["TRIAL"] = str(args.trial)
-    if args.env == "scienceworld":
+    if "scienceworld" in args.env:
         os.environ["TASK_NUM"] = str(args.task_num)
 
     # Load configs
     agent_config_path = f"examples/simulation/envs/env_config/{args.env}.yaml"
+    env_prefix = re.sub(r"\d+$", "", args.env)
     if args.debug:
-        trainer_config_path = f"examples/simulation/run/{args.env}/debug/{args.algorithm}.yaml"
+        trainer_config_path = f"examples/simulation/run/{env_prefix}/debug/{args.algorithm}.yaml"
     else:
-        trainer_config_path = f"examples/simulation/run/{args.env}/{args.algorithm}.yaml"
+        trainer_config_path = f"examples/simulation/run/{env_prefix}/{args.algorithm}.yaml"
     agent_config = get_config(agent_config_path)
 
     if "gigpo" in args.algorithm:
@@ -65,9 +66,28 @@ if __name__ == "__main__":
     train_dataset, val_dataset = train_val_dataset(rl_training_config)
 
     # Initialize agent
-    from simulation_agent import SimulationAgent
+    if "empo2" in args.algorithm:
+        kill_process_on_port(8000)
+        kill_process_on_port(8001)
 
-    agent = SimulationAgent(agent_config)
+        subprocess.Popen(
+            f"nohup python algorithms/empo2/server_bert.py > logs/bert_{args.task_num}.log 2>&1 &",
+            shell=True
+        )
+        subprocess.Popen(
+            f"nohup python algorithms/empo2/server_mem.py > logs/mem_{args.task_num}.log 2>&1 &",
+            shell=True
+        )
+
+        NUM_MEMORY = 5
+        time.sleep(1)
+        reset_memory(NUM_MEMORY)
+
+        from empo2_agent import EMPO2Agent
+        agent = EMPO2Agent(agent_config)
+    else:
+        from simulation_agent import SimulationAgent
+        agent = SimulationAgent(agent_config)
 
     # Initialize trainer and start training
     trainer = Trainer(algorithm=VERL(rl_training_config), n_workers=args.n_workers)

@@ -12,6 +12,9 @@ agentlightning:
 data:
   filter_overlong_prompts: false
 
+tips:
+  use_tips: false
+
 actor_rollout_ref:
   rollout:
     mode: async

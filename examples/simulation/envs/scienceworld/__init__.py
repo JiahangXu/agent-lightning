@@ -56,6 +56,8 @@ Items in your inventory:
 Important! You can only use FOCUS actions on these items: {focus_items}.
 You cannot FOCUS on any other things. Please only use FOCUS as required by the task description.
 Also, please FOCUS more directly, try not to focus on the container.
+
+You could try to explore different actions, especially when you are not sure what the best action for your current observation.
 """.strip()
 
     return instruction_prompt
