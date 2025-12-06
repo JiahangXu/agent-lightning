@@ -51,6 +51,11 @@ actor_rollout_ref:
     val_kwargs:
       temperature: 0.4
       do_sample: true
+    trace_aggregator:
+      mode: trajectory-tolerant
+      special_token_tolerance: 0
+      string_tolerance: 0
+      trajectory_max_length: 34384
   actor:
     ppo_mini_batch_size: ${variables.MINI_BATCH_SIZE}
     ppo_micro_batch_size_per_gpu: ${variables.PER_GPU_BATCH_SIZE}
