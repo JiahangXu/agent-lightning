@@ -712,6 +712,9 @@ class TracerTraceToTriplet(TraceToTripletBase):
 
             request_id = value.get("request_id")
 
+            if get_token_ids(call_span, "prompt_token_ids") == []:
+                continue
+
             triplets.append(
                 Triplet(
                     prompt={"token_ids": get_token_ids(call_span, "prompt_token_ids")},

@@ -27,9 +27,7 @@ Thanks for your playing.
 Now you have ended a trajectory and collect some meaningless or valuable information from the interactions with the environment.
 Please summary the trajectory, and also summary what information you get from this trajectory, and how far this trajectory is from fully completing the task.
 Please response with only one sentence with only one line, do not include any extra words.
-
-Your response must strictly follow this format:
-<tip> ___ </tip>
+You sentence should be less than 100 words.
 """.strip()
 
 # 📦 Mapping for instruction text types

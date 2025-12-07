@@ -1160,6 +1160,12 @@ class AgentModeDaemon:
         n_transition = len(input_ids_list)
         batch_input_ids = torch.LongTensor(input_ids_list).to(device)
         input_attention_mask = torch.LongTensor(input_attention_mask_list).to(device)
+        resp_lens = [len([x for x in resp if x != self.pad_token_id]) for resp in response_ids_list]
+        print("[DEBUG] Min response length:", min(resp_lens), "Max:", max(resp_lens))
+        for i, L in enumerate(resp_lens):
+            if L == 0:
+                import pdb; pdb.set_trace()
+                print(f"[DEBUG] ZERO-LENGTH RESPONSE at batch index {i}, rollout={rollout_id_list[i]}")
         batch_response_ids = torch.LongTensor(response_ids_list).to(device)
         response_attention_mask = torch.LongTensor(response_attention_mask_list).to(device)
         response_mask = (
