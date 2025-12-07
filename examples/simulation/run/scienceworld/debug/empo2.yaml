@@ -12,6 +12,7 @@ variables:
   TASK_NUM: ${oc.env:TASK_NUM,25}
   EXPERIMENT_NAME: grpo-${variables.TASK_NUM}-sciworld
   DATA_DIR: examples/simulation/task_data/scienceworld/single_data/${variables.TASK_NUM}
+  OUTPUT_DIR: /mnt/jeonghyekim/empo2-trace-aggregator/1207/${variables.EXPERIMENT_NAME}
 
 # ==========================
 # Main Config
@@ -47,6 +48,7 @@ actor_rollout_ref:
       special_token_tolerance: 0
       string_tolerance: 0
       trajectory_max_length: 34384
+      log_dir: ${variables.OUTPUT_DIR}/mismatch_log
   actor:
     ppo_mini_batch_size: ${variables.MINI_BATCH_SIZE}
     ppo_micro_batch_size_per_gpu: ${variables.PER_GPU_BATCH_SIZE}
