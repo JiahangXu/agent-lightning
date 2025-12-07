@@ -8,12 +8,12 @@ variables:
   TENSOR_MODEL_PARALLEL_SIZE: 2
   NUM_ROLLOUTS: 8
   BASE_MODEL: Qwen/Qwen2.5-7B-Instruct
-  PROJECT_NAME: AGL-v1-EMPO2
+  PROJECT_NAME: AGL-v1-EMPO2-trace-aggregator
   TASK_NUM: ${oc.env:TASK_NUM,25}
   TRIAL: ${oc.env:TRIAL,0}
   EXPERIMENT_NAME: empo2-${variables.TASK_NUM}-sciworld-${variables.TRIAL}
   DATA_DIR: examples/simulation/task_data/scienceworld/single_data/${variables.TASK_NUM}
-  OUTPUT_DIR: /mnt/jeonghyekim/agl_v1/1108/${variables.EXPERIMENT_NAME}
+  OUTPUT_DIR: /mnt/jeonghyekim/empo2-trace-aggregator/1207/${variables.EXPERIMENT_NAME}
 
 # ==========================
 # Main Config
@@ -31,7 +31,7 @@ data:
   val_files: ${variables.DATA_DIR}/test.parquet
   train_batch_size: 16
   val_batch_size: 20
-  max_prompt_length: 8192
+  max_prompt_length: 16384
   max_response_length: 64
   truncation: error
   return_raw_chat: true
@@ -55,7 +55,8 @@ actor_rollout_ref:
       mode: trajectory-tolerant
       special_token_tolerance: 0
       string_tolerance: 0
-      trajectory_max_length: 34384
+      trajectory_max_length: 17408
+      log_dir: ${variables.OUTPUT_DIR}/mismatch_log
   actor:
     ppo_mini_batch_size: ${variables.MINI_BATCH_SIZE}
     ppo_micro_batch_size_per_gpu: ${variables.PER_GPU_BATCH_SIZE}
@@ -92,7 +93,7 @@ trainer:
   nnodes: 1
   save_freq: 100
   test_freq: 5
-  total_epochs: 100
+  total_epochs: 500
 
 tips:
   use_tips: true

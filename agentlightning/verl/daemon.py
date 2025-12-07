@@ -7,6 +7,7 @@ import socket
 import threading
 import time
 import uuid
+import os
 from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
@@ -33,7 +34,7 @@ __all__ = [
 ]
 
 
-def strict_startswith_with_log(full_ids, prefix_ids, tokenizer):
+def strict_startswith_with_log(full_ids, prefix_ids, tokenizer, trace_aggregator_log_dir):
     template_mismatch, retoken_mismatch, others_mismatch = False, False, False
     if full_ids[:len(prefix_ids)] == prefix_ids:
         merge = True
@@ -69,33 +70,35 @@ def strict_startswith_with_log(full_ids, prefix_ids, tokenizer):
         # case 2: template_mismatch == True, retoken_mismatch == False, others_mismatch == False, merge == False
         if not ((not template_mismatch and not retoken_mismatch and not others_mismatch and merge) \
             or (template_mismatch and not retoken_mismatch and not others_mismatch and not merge)):
-            with open("mismatch_log/bad_case_unexpected.log", "a+") as f:
-                print("-" * 20, file=f)
-                print("full_ids:", file=f)
-                print(full_ids, file=f)
-                print("prefix_ids:", file=f)
-                print(prefix_ids, file=f)
-                print(f"template_mismatch: {template_mismatch}, retoken_mismatch: {retoken_mismatch}, others_mismatch: {others_mismatch}, merge: {merge}", file=f)
+            if trace_aggregator_log_dir:
+                with open(f"{trace_aggregator_log_dir}/bad_case_unexpected.log", "a+") as f:
+                    print("-" * 20, file=f)
+                    print("full_ids:", file=f)
+                    print(full_ids, file=f)
+                    print("prefix_ids:", file=f)
+                    print(prefix_ids, file=f)
+                    print(f"template_mismatch: {template_mismatch}, retoken_mismatch: {retoken_mismatch}, others_mismatch: {others_mismatch}, merge: {merge}", file=f)
     return template_mismatch, retoken_mismatch, others_mismatch, merge
 
 
 # log data, only for debug testing
-def log_mismatch_detail(template_mismatch, retoken_mismatch, others_mismatch, full_ids, prefix_ids):
-    if template_mismatch:
-        with open("mismatch_log/template_mismatch.log", "a+") as f:
-            print("-" * 20, file=f)
-            print(full_ids, file=f)
-            print(prefix_ids, file=f)
-    if retoken_mismatch:
-        with open("mismatch_log/retoken_mismatch.log", "a+") as f:
-            print("-" * 20, file=f)
-            print(full_ids, file=f)
-            print(prefix_ids, file=f)
-    if others_mismatch:
-        with open("mismatch_log/others_mismatch.log", "a+") as f:
-            print("-" * 20, file=f)
-            print(full_ids, file=f)
-            print(prefix_ids, file=f)
+def log_mismatch_detail(template_mismatch, retoken_mismatch, others_mismatch, full_ids, prefix_ids, trace_aggregator_log_dir):
+    if trace_aggregator_log_dir:
+        if template_mismatch:
+            with open(f"{trace_aggregator_log_dir}/template_mismatch.log", "a+") as f:
+                print("-" * 20, file=f)
+                print(full_ids, file=f)
+                print(prefix_ids, file=f)
+        if retoken_mismatch:
+            with open(f"{trace_aggregator_log_dir}/retoken_mismatch.log", "a+") as f:
+                print("-" * 20, file=f)
+                print(full_ids, file=f)
+                print(prefix_ids, file=f)
+        if others_mismatch:
+            with open(f"{trace_aggregator_log_dir}/others_mismatch.log", "a+") as f:
+                print("-" * 20, file=f)
+                print(full_ids, file=f)
+                print(prefix_ids, file=f)
 
 
 def tolerant_startswith(full_ids, prefix_ids, tokenizer, special_token_tolerance=0, string_tolerance=0):
@@ -295,6 +298,7 @@ class AgentModeDaemon:
         store: LightningStore | None = None,
         adapter: TraceToTripletBase | None = None,
         trace_aggregator: Optional[Dict[str, Any]] = None,
+        trace_aggregator_log_dir: Optional[str] = None,
     ):
         self.mode = mode
         self.llm_timeout_seconds = llm_timeout_seconds
@@ -336,6 +340,9 @@ class AgentModeDaemon:
         self.tokenizer = tokenizer
         self.reward_fillna_value = reward_fillna_value
         self.trace_aggregator = trace_aggregator
+        self.trace_aggregator_log_dir = trace_aggregator_log_dir
+        if self.trace_aggregator_log_dir:
+            os.makedirs(self.trace_aggregator_log_dir, exist_ok=True)
 
         # Internal State
         self.backend_llm_server_addresses: List[str] = []
@@ -1022,6 +1029,7 @@ class AgentModeDaemon:
                             trace["prompt_ids"] + trace["response_ids"],
                             current_context,
                             self.tokenizer,
+                            self.trace_aggregator_log_dir
                         )
                         template_mismatch_count += int(template_mismatch)
                         retoken_mismatch_count += int(retoken_mismatch)
@@ -1033,6 +1041,7 @@ class AgentModeDaemon:
                                 others_mismatch,
                                 trace["prompt_ids"] + trace["response_ids"],
                                 current_context,
+                                self.trace_aggregator_log_dir
                             )
                     elif self.trace_aggregator.mode == "trajectory-tolerant":
                         merged = tolerant_startswith(
@@ -1073,10 +1082,11 @@ class AgentModeDaemon:
                     final_sample = sample_info["trace_list"][current_merged_trace_idx[-1]]
                     response_ids = final_sample["prompt_ids"][prompt_length:] + final_sample["response_ids"]
                     if len(response_ids) != len(accum_response_ids):  # only for debug testing
-                        with open("mismatch_log/response_ids_num_mismatch.log", "a+") as f:
-                            print("-" * 20, file=f)
-                            print(response_ids, file=f)
-                            print(accum_response_ids, file=f)
+                        if self.trace_aggregator_log_dir:
+                            with open(f"{self.trace_aggregator_log_dir}/response_ids_num_mismatch.log", "a+") as f:
+                                print("-" * 20, file=f)
+                                print(response_ids, file=f)
+                                print(accum_response_ids, file=f)
 
                     response_ids = accum_response_ids  # convert to the generating response ids, only for debug testing
                     final_reward_list.append(sample_info["final_reward"])
