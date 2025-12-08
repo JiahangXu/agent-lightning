@@ -45,6 +45,7 @@ def remove_pattern_ranges(seq: List[Any],
     return out
 
 def low_prob_token_masking(batch):
+    import pdb; pdb.set_trace()
     response_mask = batch.batch["response_mask"]       # [N, T]
     old_log_prob = batch.batch["old_log_probs"]        # [N, T]
     # advantages = batch.batch["advantages"]             # [N, T]
