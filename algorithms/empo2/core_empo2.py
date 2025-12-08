@@ -45,22 +45,30 @@ def remove_pattern_ranges(seq: List[Any],
     return out
 
 def low_prob_token_masking(batch):
-    import pdb; pdb.set_trace()
     response_mask = batch.batch["response_mask"]       # [N, T]
     old_log_prob = batch.batch["old_log_probs"]        # [N, T]
-    # advantages = batch.batch["advantages"]             # [N, T]
+    response_action_region = batch.batch["response_action_region"]
 
-    masked_old_log_prob = old_log_prob.masked_fill(response_mask == 0, 1e9)
-    min_values, _ = torch.min(masked_old_log_prob, dim=1)  # [N]
+    for gen_id in range(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n):
+        # 256 means containing up to 100+ actions, enough for now
+        for cnt in range(256):
+            if response_action_region[gen_id, cnt * 2] < 0:
+                break
+            loc_l = response_action_region[gen_id, cnt * 2    ].numpy()
+            loc_r = response_action_region[gen_id, cnt * 2 + 1].numpy()
+            # loc_l_off_policy = batch.batch['off_policy_region'][gen_id, cnt * 2    ].numpy()
+            # loc_r_off_policy = batch.batch['off_policy_region'][gen_id, cnt * 2 + 1].numpy()
+            # range_len = loc_r_off_policy - loc_l_off_policy
+            old_values = old_log_probs[gen_id, loc_l:loc_r]
+            tmp_min = torch.min(old_values) if loc_r - loc_l > 0 else 0
+            # old_log_probs[gen_id, loc_l:loc_l+range_len] = off_policy_batch.batch['old_log_probs'][gen_id, loc_l_off_policy:loc_l_off_policy+range_len].clone()
+            
+            # Disable the extremly low probs
+            if tmp_min < -5:
+                response_mask[gen_id, loc_l:loc_r] = 0
+                # low_prob_token_dict[gen_id].append([loc_l, loc_r])
 
-    mask = min_values < -5  # [N]
-
-    combined_mask = mask.unsqueeze(1) & (response_mask == 1)
-
-    # advantages masking
-    response_mask = response_mask.masked_fill(combined_mask, 0)
-    batch.batch["response_mask"] = response_mask
-
-    print(f"Number of tokens masked: {combined_mask.sum().item()}")
+    
+    import pdb; pdb.set_trace()
 
     return batch

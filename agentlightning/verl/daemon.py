@@ -34,6 +34,18 @@ __all__ = [
     "get_right_padded_ids_and_attention_mask",
 ]
 
+def extract_response_region(mask):
+    spans = []
+    start = None
+    for i, m in enumerate(mask):
+        if m == 1 and start is None:
+            start = i
+        if m == 0 and start is not None:
+            spans.append((start, i))
+            start = None
+    if start is not None:
+        spans.append((start, len(mask)))
+    return spans
 
 def strict_startswith_with_log(full_ids, prefix_ids, tokenizer, trace_aggregator_log_dir):
     template_mismatch, retoken_mismatch, others_mismatch = False, False, False
@@ -959,8 +971,10 @@ class AgentModeDaemon:
         n_trunc_sample_because_of_response = 0
 
         if empo2_train_mode == "off-policy":
-            old_input_ids_list: List[List[int]] = []
-            old_input_attention_mask_list: List[List[int]] = []
+            off_policy_input_ids_list = List[List[int]] = []
+            off_policy_attention_mask_list = List[List[int]] = []
+            off_policy_response_ids_list = List[List[int]] = []
+            off_policy_response_attention_mask_list = List[List[int]] = []
 
         # optional fields
         step_intrinsic_reward_list: List[float] = []
@@ -1024,9 +1038,13 @@ class AgentModeDaemon:
 
         elif self.trace_aggregator.mode.startswith("trajectory"):
             response_mask_list: List[List[int]] = []
+            response_action_region_list: List[List[int]] = []
             unmerged_count: int = 0  # only for debug
             template_mismatch_count, retoken_mismatch_count, others_mismatch_count = 0, 0, 0
             response_per_turn_list: List[int] = []  # only for debug
+            if empo2_train_mode == "off-policy":
+                off_policy_response_mask_list: List[List[int]] = []
+                off_policy_response_action_region_list: List[List[int]] = []
 
             for rollout_id, sample_info in finished_id_to_sample_info.items():
                 merged_trace_idx: List[List[int]] = []
@@ -1084,16 +1102,43 @@ class AgentModeDaemon:
 
                 for current_merged_trace_idx in merged_trace_idx:
                     prompt_ids = sample_info["trace_list"][current_merged_trace_idx[0]]["prompt_ids"]
+                    if empo2_train_mode == "off-policy":
+                        START_PATTERN = self.tokenizer.encode("<tip>")
+                        END_PATTERN = self.tokenizer.encode("</tip>\n")
+                        if core_empo2.is_sublist(START_PATTERN, prompt_ids):
+                            off_policy_prompt_ids = core_empo2.remove_pattern_ranges(prompt_ids, START_PATTERN, END_PATTERN)
+                        else:
+                            off_policy_prompt_ids = prompt_ids
                     accum_response_ids = sample_info["trace_list"][current_merged_trace_idx[0]]["response_ids"]
+                    accum_off_policy_response_ids = sample_info["trace_list"][current_merged_trace_idx[0]]["response_ids"]
                     prompt_length = len(prompt_ids)
                     response_mask = [1] * len(accum_response_ids)
                     for turn_index in current_merged_trace_idx[1:]:
                         trace = sample_info["trace_list"][turn_index]
                         new_prompt_length = len(trace["prompt_ids"]) - len(accum_response_ids) - prompt_length
+                        import pdb; pdb.set_trace()
                         accum_response_ids += trace["prompt_ids"][-new_prompt_length:]
                         accum_response_ids += trace["response_ids"]
+
                         response_mask += [0] * new_prompt_length
                         response_mask += [1] * len(trace["response_ids"])
+
+                        if empo2_train_mode == "off-policy":
+                            new_prompt_ids = trace["prompt_ids"][-new_prompt_length:]
+                            START_PATTERN = self.tokenizer.encode("<tip>")
+                            END_PATTERN = self.tokenizer.encode("</tip>\n")
+                            if core_empo2.is_sublist(START_PATTERN, new_prompt_ids):
+                                new_off_policy_prompt_ids = core_empo2.remove_pattern_ranges(new_prompt_ids, START_PATTERN, END_PATTERN)
+                            else:
+                                new_off_policy_prompt_ids = new_prompt_ids
+                            accum_off_policy_response_ids += new_off_policy_prompt_ids
+                            accum_off_policy_response_ids += trace["response_ids"]
+
+                            new_off_policy_prompt_length = len(new_off_policy_prompt_ids)
+
+                            off_policy_response_mask += [0] * new_off_policy_prompt_length
+                            off_policy_response_mask += [1] * len(trace["response_ids"])
+                        
                     final_sample = sample_info["trace_list"][current_merged_trace_idx[-1]]
                     response_ids = final_sample["prompt_ids"][prompt_length:] + final_sample["response_ids"]
                     if len(response_ids) != len(accum_response_ids):  # only for debug testing
@@ -1104,15 +1149,9 @@ class AgentModeDaemon:
                                 print(accum_response_ids, file=f)
 
                     response_ids = accum_response_ids  # convert to the generating response ids, only for debug testing
+                    off_policy_response_ids = accum_off_policy_response_ids
                     final_reward_list.append(sample_info["final_reward"])
                     step_reward_list.append(trace["step_reward"])
-
-                    if empo2_train_mode == "off-policy":
-                        old_prompt_ids = copy.deepcopy(prompt_ids)
-                        START_PATTERN = self.tokenizer.encode("<tip>")
-                        END_PATTERN = self.tokenizer.encode("</tip>\n")
-                        if core_empo2.is_sublist(START_PATTERN, prompt_ids):
-                            prompt_ids = core_empo2.remove_pattern_ranges(prompt_ids, START_PATTERN, END_PATTERN)
 
                     # Mark samples with prompts exceeding max_prompt_length to be dropped later
                     if len(prompt_ids) > max_prompt_length:
@@ -1137,6 +1176,18 @@ class AgentModeDaemon:
                     one_response_mask, _ = get_right_padded_ids_and_attention_mask(
                         response_mask, max_response_length, 0
                     )
+                    response_spans = extract_response_region(one_response_mask)
+                    action_region_tensor = [-1] * max_prompt_length
+
+                    idx = 0
+                    for start, end in response_spans:
+                        if idx + 1 >= max_prompt_length:
+                            break
+                        action_region_tensor[idx] = start
+                        action_region_tensor[idx + 1] = end
+                        idx += 2
+
+                    response_action_region_list.append(action_region_tensor)
 
                     input_ids_list.append(one_input_ids)
                     input_attention_mask_list.append(one_input_attention_mask)
@@ -1148,12 +1199,40 @@ class AgentModeDaemon:
                     turn_index_list.append(current_merged_trace_idx)
 
                     if empo2_train_mode == "off-policy":
-                        old_prompt_ids = old_prompt_ids[:max_prompt_length]
-                        one_old_input_ids, one_old_input_attention_mask = get_left_padded_ids_and_attention_mask(
-                            old_prompt_ids, max_prompt_length, self.pad_token_id
+                        # Truncate responses that exceed max_response_length
+                        if len(off_policy_response_ids) > max_response_length:
+                            off_policy_response_ids = off_policy_response_ids[:max_response_length]
+                            off_policy_response_mask = off_policy_response_mask[:max_response_length]
+
+                        # Pad prompts to the left and responses to the right
+                        one_input_ids, one_input_attention_mask = get_left_padded_ids_and_attention_mask(
+                            off_policy_prompt_ids, max_prompt_length, self.pad_token_id
                         )
-                        old_input_ids_list.append(one_old_input_ids)
-                        old_input_attention_mask_list.append(one_old_input_attention_mask)
+                        one_response_ids, one_response_attention_mask = get_right_padded_ids_and_attention_mask(
+                            off_policy_response_ids, max_response_length, self.pad_token_id
+                        )
+                        one_response_mask, _ = get_right_padded_ids_and_attention_mask(
+                            off_policy_response_mask, max_response_length, 0
+                        )
+                        response_spans = extract_response_region(one_response_mask)
+                        action_region_tensor = [-1] * max_prompt_length
+
+                        idx = 0
+                        for start, end in response_spans:
+                            if idx + 1 >= max_prompt_length:
+                                break
+                            action_region_tensor[idx] = start
+                            action_region_tensor[idx + 1] = end
+                            idx += 2
+
+                        response_action_region_list.append(action_region_tensor)
+                    
+                        off_policy_input_ids_list.append(one_input_ids)
+                        off_policy_attention_mask_list.append(one_input_attention_mask)
+                        off_policy_response_ids_list.append(one_response_ids)
+                        off_policy_response_attention_mask_list.append(one_response_attention_mask)
+                        off_policy_response_mask_list.append(one_response_mask)
+                        off_policy_response_action_region_list.append(action_region_tensor)
         else:
             raise ValueError(f"Unknown trace_aggregator mode: {self.trace_aggregator.mode}")
 
@@ -1165,6 +1244,9 @@ class AgentModeDaemon:
         response_mask = (
             torch.LongTensor(response_mask_list).to(device) if self.trace_aggregator.mode.startswith("trajectory") else None
         )
+        response_action_region = (
+            torch.LongTensor(response_action_region_list).to(device) if self.trace_aggregator.mode.startswith("trajectory") else None
+        )
 
         # Concatenate prompts and responses to form the full sequence
         batch_seq = torch.cat([batch_input_ids, batch_response_ids], dim=-1)
@@ -1172,11 +1254,30 @@ class AgentModeDaemon:
         position_ids = torch.clamp(torch.cumsum(attention_mask, dim=-1) - 1, min=0)
 
         if empo2_train_mode == "off-policy":
-            old_batch_input_ids = torch.LongTensor(old_input_ids_list).to(device)
-            old_batch_seq = torch.cat([old_batch_input_ids, batch_response_ids], dim=-1)
-            old_input_attention_mask = torch.LongTensor(old_input_attention_mask_list).to(device)
-            old_attention_mask = torch.cat([old_input_attention_mask, response_attention_mask], dim=-1)
-            old_position_ids = torch.clamp(torch.cumsum(old_attention_mask, dim=-1) - 1, min=0)
+            if self.trace_aggregator.mode == "transition":
+                old_batch_input_ids = torch.LongTensor(old_input_ids_list).to(device)
+                old_batch_seq = torch.cat([old_batch_input_ids, batch_response_ids], dim=-1)
+                old_input_attention_mask = torch.LongTensor(old_input_attention_mask_list).to(device)
+                old_attention_mask = torch.cat([old_input_attention_mask, response_attention_mask], dim=-1)
+                old_position_ids = torch.clamp(torch.cumsum(old_attention_mask, dim=-1) - 1, min=0)
+            else:
+                old_batch_input_ids = batch_input_ids
+                old_batch_seq = batch_seq
+                old_input_attention_mask = input_attention_mask
+                old_attention_mask = attention_mask
+                old_position_ids = position_ids
+                
+                # off_policy_batch_input_ids = 
+                # off_policy_batch_seq = 
+                # off_policy_input_attention_mask = 
+                # off_policy_attention_mask = 
+                # off_policy_position_ids = 
+                batch_input_ids = off_policy_batch_input_ids
+                batch_seq = off_policy_batch_seq
+                input_attention_mask = off_policy_input_attention_mask
+                attention_mask = off_policy_attention_mask
+                position_ids = off_policy_position_ids
+                
 
         is_drop_mask = torch.BoolTensor(is_drop_list).to(device)
         if use_final_reward_as_step_reward:
@@ -1214,6 +1315,7 @@ class AgentModeDaemon:
             "token_level_scores": token_level_scores.contiguous(),
             "step_rewards": torch.tensor(np.array(step_reward_list), dtype=torch.float32).to(device),
             **({"response_mask": response_mask} if self.trace_aggregator.mode.startswith("trajectory") else {}),
+            **({"response_action_region": response_action_region} if self.trace_aggregator.mode.startswith("trajectory") else {}),
         }
         if token_level_intrinsic_rewards is not None:
             batch_dict["step_intrinsic_rewards"] = torch.tensor(
