@@ -971,10 +971,14 @@ class AgentModeDaemon:
         n_trunc_sample_because_of_response = 0
 
         if empo2_train_mode == "off-policy":
-            off_policy_input_ids_list = List[List[int]] = []
-            off_policy_attention_mask_list = List[List[int]] = []
-            off_policy_response_ids_list = List[List[int]] = []
-            off_policy_response_attention_mask_list = List[List[int]] = []
+            if self.trace_aggregator.mode == "transition":
+                old_input_ids_list: List[List[int]] = []
+                old_input_attention_mask_list: List[List[int]] = []
+            elif self.trace_aggregator.mode.startswith("trajectory"):
+                off_policy_input_ids_list: List[List[int]] = []
+                off_policy_input_attention_mask_list: List[List[int]] = []
+                off_policy_response_ids_list: List[List[int]] = []
+                off_policy_response_attention_mask_list: List[List[int]] = []
 
         # optional fields
         step_intrinsic_reward_list: List[float] = []
@@ -1113,10 +1117,11 @@ class AgentModeDaemon:
                     accum_off_policy_response_ids = sample_info["trace_list"][current_merged_trace_idx[0]]["response_ids"]
                     prompt_length = len(prompt_ids)
                     response_mask = [1] * len(accum_response_ids)
+                    off_policy_response_mask = [1] * len(accum_off_policy_response_ids)
+
                     for turn_index in current_merged_trace_idx[1:]:
                         trace = sample_info["trace_list"][turn_index]
                         new_prompt_length = len(trace["prompt_ids"]) - len(accum_response_ids) - prompt_length
-                        import pdb; pdb.set_trace()
                         accum_response_ids += trace["prompt_ids"][-new_prompt_length:]
                         accum_response_ids += trace["response_ids"]
 
@@ -1215,24 +1220,22 @@ class AgentModeDaemon:
                             off_policy_response_mask, max_response_length, 0
                         )
                         response_spans = extract_response_region(one_response_mask)
-                        action_region_tensor = [-1] * max_prompt_length
+                        off_policy_action_region_tensor = [-1] * max_prompt_length
 
                         idx = 0
                         for start, end in response_spans:
                             if idx + 1 >= max_prompt_length:
                                 break
-                            action_region_tensor[idx] = start
-                            action_region_tensor[idx + 1] = end
+                            off_policy_action_region_tensor[idx] = start
+                            off_policy_action_region_tensor[idx + 1] = end
                             idx += 2
-
-                        response_action_region_list.append(action_region_tensor)
                     
                         off_policy_input_ids_list.append(one_input_ids)
-                        off_policy_attention_mask_list.append(one_input_attention_mask)
+                        off_policy_input_attention_mask_list.append(one_input_attention_mask)
                         off_policy_response_ids_list.append(one_response_ids)
                         off_policy_response_attention_mask_list.append(one_response_attention_mask)
                         off_policy_response_mask_list.append(one_response_mask)
-                        off_policy_response_action_region_list.append(action_region_tensor)
+                        off_policy_response_action_region_list.append(off_policy_action_region_tensor)
         else:
             raise ValueError(f"Unknown trace_aggregator mode: {self.trace_aggregator.mode}")
 
@@ -1261,24 +1264,43 @@ class AgentModeDaemon:
                 old_attention_mask = torch.cat([old_input_attention_mask, response_attention_mask], dim=-1)
                 old_position_ids = torch.clamp(torch.cumsum(old_attention_mask, dim=-1) - 1, min=0)
             else:
+                # Save original batch
                 old_batch_input_ids = batch_input_ids
                 old_batch_seq = batch_seq
                 old_input_attention_mask = input_attention_mask
                 old_attention_mask = attention_mask
                 old_position_ids = position_ids
-                
-                # off_policy_batch_input_ids = 
-                # off_policy_batch_seq = 
-                # off_policy_input_attention_mask = 
-                # off_policy_attention_mask = 
-                # off_policy_position_ids = 
+                old_response_action_region = response_action_region
+
+                # Build off-policy batch
+                off_policy_batch_input_ids = torch.tensor(off_policy_input_ids_list, dtype=torch.long, device=device)
+                off_policy_batch_response_ids = torch.tensor(off_policy_response_ids_list, dtype=torch.long, device=device)
+
+                off_policy_batch_seq = torch.cat(
+                    [off_policy_batch_input_ids, off_policy_batch_response_ids], dim=-1
+                )
+
+                off_policy_input_attention_mask = torch.tensor(off_policy_input_attention_mask_list, dtype=torch.long, device=device)
+                off_policy_response_attention_mask = torch.tensor(off_policy_response_attention_mask_list, dtype=torch.long, device=device)
+
+                off_policy_attention_mask = torch.cat(
+                    [off_policy_input_attention_mask, off_policy_response_attention_mask], dim=-1
+                )
+
+                off_policy_position_ids = torch.clamp(torch.cumsum(off_policy_attention_mask, dim=-1) - 1, min=0)
+
+                off_policy_response_action_region = (
+                    torch.LongTensor(off_policy_response_action_region_list).to(device) if self.trace_aggregator.mode.startswith("trajectory") else None
+                )
+
+                # Replace batch with off-policy batch
                 batch_input_ids = off_policy_batch_input_ids
                 batch_seq = off_policy_batch_seq
                 input_attention_mask = off_policy_input_attention_mask
                 attention_mask = off_policy_attention_mask
                 position_ids = off_policy_position_ids
+                response_action_region = off_policy_response_action_region
                 
-
         is_drop_mask = torch.BoolTensor(is_drop_list).to(device)
         if use_final_reward_as_step_reward:
             scores = torch.tensor(final_reward_list, dtype=torch.float32).to(device)
@@ -1327,6 +1349,7 @@ class AgentModeDaemon:
                 "old_input_ids": old_batch_seq,
                 "old_attention_mask": old_attention_mask,
                 "old_position_ids": old_position_ids,
+                **({"old_response_action_region": old_response_action_region} if self.trace_aggregator.mode.startswith("trajectory") else {}),
             })
 
         batch = TensorDict(batch_dict, batch_size=n_transition)

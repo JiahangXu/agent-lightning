@@ -48,27 +48,24 @@ def low_prob_token_masking(batch):
     response_mask = batch.batch["response_mask"]       # [N, T]
     old_log_prob = batch.batch["old_log_probs"]        # [N, T]
     response_action_region = batch.batch["response_action_region"]
+    old_response_action_region = batch.batch["old_response_action_region"]
 
-    for gen_id in range(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n):
+    batch_size = batch.batch["response_mask"].shape[0]
+
+    for gen_id in range(batch_size):
         # 256 means containing up to 100+ actions, enough for now
         for cnt in range(256):
             if response_action_region[gen_id, cnt * 2] < 0:
                 break
-            loc_l = response_action_region[gen_id, cnt * 2    ].numpy()
-            loc_r = response_action_region[gen_id, cnt * 2 + 1].numpy()
-            # loc_l_off_policy = batch.batch['off_policy_region'][gen_id, cnt * 2    ].numpy()
-            # loc_r_off_policy = batch.batch['off_policy_region'][gen_id, cnt * 2 + 1].numpy()
-            # range_len = loc_r_off_policy - loc_l_off_policy
-            old_values = old_log_probs[gen_id, loc_l:loc_r]
+            loc_l = old_response_action_region[gen_id, cnt * 2    ].numpy()
+            loc_r = old_response_action_region[gen_id, cnt * 2 + 1].numpy()
+            loc_l_off_policy = response_action_region[gen_id, cnt * 2    ].numpy()
+            loc_r_off_policy = response_action_region[gen_id, cnt * 2 + 1].numpy()
+            old_values = old_log_prob[gen_id, loc_l:loc_r]
             tmp_min = torch.min(old_values) if loc_r - loc_l > 0 else 0
-            # old_log_probs[gen_id, loc_l:loc_l+range_len] = off_policy_batch.batch['old_log_probs'][gen_id, loc_l_off_policy:loc_l_off_policy+range_len].clone()
             
             # Disable the extremly low probs
             if tmp_min < -5:
-                response_mask[gen_id, loc_l:loc_r] = 0
-                # low_prob_token_dict[gen_id].append([loc_l, loc_r])
-
-    
-    import pdb; pdb.set_trace()
+                response_mask[gen_id, loc_l_off_policy:loc_r_off_policy] = 0
 
     return batch

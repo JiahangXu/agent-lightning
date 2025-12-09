@@ -238,12 +238,13 @@ class AgentLightningTrainer(RayPPOTrainer):
 
                 if self.config.tips.use_tips:
                     touzi = random.random()
-                    if touzi < 0.17:
-                        self.empo2_train_mode = "off-policy" # Update with Tips and give them to the pure_chats
-                    elif touzi < 0.25:
-                        self.empo2_train_mode = "on-policy-with-tips"
-                    else:
-                        self.empo2_train_mode = "on-policy" # Normal Update, No Tips
+                    # if touzi < 0.17:
+                    #     self.empo2_train_mode = "off-policy" # Update with Tips and give them to the pure_chats
+                    # elif touzi < 0.25:
+                    #     self.empo2_train_mode = "on-policy-with-tips"
+                    # else:
+                    #     self.empo2_train_mode = "on-policy" # Normal Update, No Tips
+                    self.empo2_train_mode = "off-policy"
 
                     gen_batch.non_tensor_batch["train_mode"] = [self.empo2_train_mode for _ in range(num_problems)]
 
