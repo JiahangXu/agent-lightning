@@ -48,24 +48,42 @@ def low_prob_token_masking(batch):
     response_mask = batch.batch["response_mask"]       # [N, T]
     old_log_prob = batch.batch["old_log_probs"]        # [N, T]
     response_action_region = batch.batch["response_action_region"]
-    old_response_action_region = batch.batch["old_response_action_region"]
 
-    batch_size = batch.batch["response_mask"].shape[0]
+    if "old_response_action_region" in batch.batch:
+        old_response_action_region = batch.batch["old_response_action_region"]
 
-    for gen_id in range(batch_size):
-        # 256 means containing up to 100+ actions, enough for now
-        for cnt in range(256):
-            if response_action_region[gen_id, cnt * 2] < 0:
-                break
-            loc_l = old_response_action_region[gen_id, cnt * 2    ].numpy()
-            loc_r = old_response_action_region[gen_id, cnt * 2 + 1].numpy()
-            loc_l_off_policy = response_action_region[gen_id, cnt * 2    ].numpy()
-            loc_r_off_policy = response_action_region[gen_id, cnt * 2 + 1].numpy()
-            old_values = old_log_prob[gen_id, loc_l:loc_r]
-            tmp_min = torch.min(old_values) if loc_r - loc_l > 0 else 0
-            
-            # Disable the extremly low probs
-            if tmp_min < -5:
-                response_mask[gen_id, loc_l_off_policy:loc_r_off_policy] = 0
+        batch_size = batch.batch["response_mask"].shape[0]
+
+        for gen_id in range(batch_size):
+            # 256 means containing up to 100+ actions, enough for now
+            for cnt in range(256):
+                if old_response_action_region[gen_id, cnt * 2] < 0:
+                    break
+                loc_l = old_response_action_region[gen_id, cnt * 2    ].numpy()
+                loc_r = old_response_action_region[gen_id, cnt * 2 + 1].numpy()
+                loc_l_off_policy = response_action_region[gen_id, cnt * 2    ].numpy()
+                loc_r_off_policy = response_action_region[gen_id, cnt * 2 + 1].numpy()
+                old_values = old_log_prob[gen_id, loc_l:loc_r]
+                tmp_min = torch.min(old_values) if loc_r - loc_l > 0 else 0
+                
+                # Disable the extremly low probs
+                if tmp_min < -5:
+                    response_mask[gen_id, loc_l_off_policy:loc_r_off_policy] = 0
+    else:
+        batch_size = batch.batch["response_mask"].shape[0]
+
+        for gen_id in range(batch_size):
+            # 256 means containing up to 100+ actions, enough for now
+            for cnt in range(256):
+                if response_action_region[gen_id, cnt * 2] < 0:
+                    break
+                loc_l = response_action_region[gen_id, cnt * 2    ].numpy()
+                loc_r = response_action_region[gen_id, cnt * 2 + 1].numpy()
+                old_values = old_log_prob[gen_id, loc_l:loc_r]
+                tmp_min = torch.min(old_values) if loc_r - loc_l > 0 else 0
+                
+                # Disable the extremly low probs
+                if tmp_min < -5:
+                    response_mask[gen_id, loc_l:loc_r] = 0
 
     return batch

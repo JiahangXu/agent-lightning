@@ -47,6 +47,7 @@ actor_rollout_ref:
       mode: trajectory-tolerant
       special_token_tolerance: 0
       string_tolerance: 0
+      max_obs_length: 2048
       trajectory_max_length: 34384
       log_dir: ${variables.OUTPUT_DIR}/mismatch_log
   actor:
